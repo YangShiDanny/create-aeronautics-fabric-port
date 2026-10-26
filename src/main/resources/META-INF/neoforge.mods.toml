@@ -1,0 +1,42 @@
+[mods]
+modId = "create_aeronautics_fabric"
+version = "${file.jarVersion}"
+displayName = "Create Aeronautics Fabric"
+credits = ""
+authors = ""
+description = "Port of Create Aeronautics to work with Create Fly on Minecraft Fabric 26.3 using Sodium for Fabric 26.3."
+
+[[dependencies.create_aeronautics_fabric]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.create_aeronautics_fabric]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.create_aeronautics_fabric]]
+modId = "create_fabric"
+type = "required"
+versionRange = "[0.5.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.create_aeronautics_fabric]]
+modId = "create_fly_fabric"
+type = "required"
+versionRange = "[1.0.0,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.create_aeronautics_fabric]]
+modId = "sodium_fabric"
+type = "required"
+versionRange = "[26.3,)"
+ordering = "NONE"
+side = "BOTH"

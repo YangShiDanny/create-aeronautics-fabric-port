@@ -1,0 +1,38 @@
+plugins {
+    id 'net.neoforged.gradle.userdev' version '7.0.127'
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'NeoForged'
+        url = 'https://maven.neoforged.net/releases'
+    }
+}
+
+dependencies {
+    minecraft "net.neoforged:neoforge:21.1.10"
+    mappings "net.neoforged:neoforge:21.1.10:mappings"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+    inputs.property "mcp", project.archives_name.replace("-" + project.minecraft.version, "")
+}
+
+jar {
+    from {
+        configurations.compileClasspath.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs = ["src/main/resources"]
+        }
+    }
+}
