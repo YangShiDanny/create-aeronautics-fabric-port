@@ -8,10 +8,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      publish_release:
-        description: '构建完成后把 jar 发布为 Release'
-        type: boolean
-        default: false
       gh_proxy:
         description: 'GitHub 资源镜像前缀（留空使用 gh-proxy.com）'
         type: string
@@ -80,36 +76,63 @@ jobs:
       - name: 构建
         run: ./gradlew build --no-daemon --stacktrace
 
-      - name: 列出产物
-        run: ls -lh build/libs/
+      # 只挑主 jar，验证它确实是 zip/jar 且含 .class，再放进干净的 dist/ 供上传和发版。
+      # 这样 Artifacts 里不会再出现任何日志/空壳文件，内容也会打印在日志里方便核对。
+      - name: 校验并整理构件
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== build/libs 原始内容 =="
+          ls -lah build/libs/
+          mkdir -p dist
+          mapfile -t JARS < <(find build/libs -maxdepth 1 -type f -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-dev.jar')
+          if (( ${#JARS[@]} == 0 )); then
+            echo "::error::build/libs 里没有主 jar，构建产物异常"
+            exit 1
+          fi
+          for j in "${JARS[@]}"; do
+            echo "== 校验 $j =="
+            unzip -t "$j" | tail -3
+            if ! unzip -l "$j" | grep -q '\.class$'; then
+              echo "::error::$j 里没有任何 .class，疑似空壳或日志文件，拒绝上传"
+              exit 1
+            fi
+            unzip -l "$j" | tail -20
+            cp "$j" dist/
+          done
+          echo "== 待发布构件 =="
+          ls -lah dist/
 
       - name: 上传构件
         uses: actions/upload-artifact@v4
         with:
           name: create-aeronautics-fabric-${{ github.run_number }}
-          path: |
-            build/libs/*.jar
-            !build/libs/*-sources.jar
-            !build/libs/*-javadoc.jar
-            !build/libs/*-dev.jar
+          path: dist/*.jar
           if-no-files-found: error
           retention-days: 30
 
-      - name: 发布 Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+      # 构建成功即自动发布：push main / 手动运行 -> build-<运行号> 预发布；推 v* tag -> 正式 Release。
+      # PR 不发布（其 token 只读）。同名 Release 已存在时只覆盖附件，不重复创建。
+      - name: 自动发布 Release
+        if: ${{ success() && github.event_name != 'pull_request' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="$GITHUB_REF_NAME"
+            TITLE="$TAG"
+            EXTRA=()
           else
             TAG="build-${GITHUB_RUN_NUMBER}"
+            TITLE="Build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA:0:7})"
+            EXTRA=(--prerelease)
           fi
-          mapfile -t JARS < <(find build/libs -maxdepth 1 -name '*.jar' \
-            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-dev.jar')
+          mapfile -t JARS < <(find dist -maxdepth 1 -type f -name '*.jar')
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" "${JARS[@]}" --clobber
           else
-            gh release create "$TAG" "${JARS[@]}" --title "$TAG" --generate-notes
+            gh release create "$TAG" "${JARS[@]}" --title "$TITLE" --generate-notes "${EXTRA[@]}"
           fi
+          echo "Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
