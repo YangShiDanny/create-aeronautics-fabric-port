@@ -1,0 +1,115 @@
+name: 构建模组构件
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: '构建完成后把 jar 发布为 Release'
+        type: boolean
+        default: false
+      gh_proxy:
+        description: 'GitHub 资源镜像前缀（留空使用 gh-proxy.com）'
+        type: string
+        default: 'https://gh-proxy.com'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GH_PROXY: ${{ inputs.gh_proxy || 'https://gh-proxy.com' }}
+  JAVA_VERSION: '21'
+
+jobs:
+  build:
+    name: Build & upload jar
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # 仓库自带的 wrapper 指向 services.gradle.org，最终会跳到 GitHub Release。
+      # 这里只在 CI 副本里把下载地址换成 gh-proxy 镜像，不改仓库文件；镜像不可达时自动回退官方源。
+      - name: Gradle 发行版走 gh-proxy 镜像
+        shell: bash
+        run: |
+          set -euo pipefail
+          props=gradle/wrapper/gradle-wrapper.properties
+          official=$(sed -n 's/^distributionUrl=//p' "$props" | tr -d '\\')
+          file=$(basename "$official")
+          ver=${file#gradle-}
+          ver=${ver%-bin.zip}
+          mirror="${GH_PROXY%/}/https://github.com/gradle/gradle-distributions/releases/download/v${ver}/${file}"
+          if curl -fsIL --connect-timeout 15 "$mirror" > /dev/null; then
+            echo "使用镜像: $mirror"
+            sed -i "s|^distributionUrl=.*|distributionUrl=${mirror}|" "$props"
+            # 换成第三方地址后需关闭官方域名校验
+            sed -i 's/^validateDistributionUrl=.*/validateDistributionUrl=false/' "$props"
+          else
+            echo "镜像不可用，继续使用官方源: $official"
+          fi
+          cat "$props"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: 环境信息
+        run: |
+          chmod +x ./gradlew
+          java -version
+          ./gradlew --version
+
+      - name: 构建
+        run: ./gradlew build --no-daemon --stacktrace
+
+      - name: 列出产物
+        run: ls -lh build/libs/
+
+      - name: 上传构件
+        uses: actions/upload-artifact@v4
+        with:
+          name: create-aeronautics-fabric-${{ github.run_number }}
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+            !build/libs/*-javadoc.jar
+            !build/libs/*-dev.jar
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="build-${GITHUB_RUN_NUMBER}"
+          fi
+          mapfile -t JARS < <(find build/libs -maxdepth 1 -name '*.jar' \
+            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-dev.jar')
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "${JARS[@]}" --clobber
+          else
+            gh release create "$TAG" "${JARS[@]}" --title "$TAG" --generate-notes
+          fi

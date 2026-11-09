@@ -15,6 +15,14 @@ AeroFabric is a Minecraft mod that ports Create Aeronautics for Minecraft NeoFor
 2. Follow the in-game instructions or mod documentation to set up and use the aeronautical features.
 3. Enjoy the enhanced aeronautical gameplay provided by AeroFabric.
 
+## CI / Build
+
+推送到 `main`、提交 PR，或在 Actions 页面手动运行 **Build Mod**，会自动用 JDK 21 + Gradle 8.14.2 构建，生成的 `.jar` 可在该次运行页面的 **Artifacts** 中下载（保留 30 天）。
+
+- 推送 `v*` 标签会自动创建 Release 并附上 jar。
+- 手动运行时勾选 `publish_release` 也可发布 Release。
+- 本地构建：`./gradlew build`，产物在 `build/libs/`。首次构建需要下载 Minecraft / NeoForge 依赖，耗时较长。
+
 ---
 
 More Minecraft mod projects by EnderDevelopment: https://github.com/EnderDevelopment
